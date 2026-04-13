@@ -34,7 +34,7 @@ public class FinalBenchmarkTest {
         long bfTime = benchmark(bruteForce, rays);
         Intersection bfRef = bruteForce.findFirstIntersection(rays.get(0));
 
-        // --- UNIFORM GRID ---
+        // --- UNIFORM GRID --
         UniformGrid grid = new UniformGrid();
         grid.build(objects);
         long gridTime = benchmark(grid, rays);
