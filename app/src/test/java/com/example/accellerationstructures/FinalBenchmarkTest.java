@@ -15,7 +15,6 @@ public class FinalBenchmarkTest {
         // ─────────────────────────────────────────
         int N = 100000;  // number of objects
         int M = 10000;   // number of rays
-
         List<Hittable> objects = generateRandomObjects(N);
         List<Ray> rays = generateRandomRays(M);
 
