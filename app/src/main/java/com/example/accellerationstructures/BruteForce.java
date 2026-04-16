@@ -76,4 +76,37 @@ public class BruteForce implements AccelerationStructures{
         //return null if not intersection
         return closest;
     }
+
+    // ─────────────────────────────────────────
+    // PAIR QUERY (broad-phase)
+    // ─────────────────────────────────────────
+    /**
+     * Brute-force pair query: tests every possible pair of objects.
+     *
+     * This is the O(N^2) BASELINE and the CORRECTNESS GROUND TRUTH.
+     * Every acceleration structure's queryPairs() must return the same set.
+     *
+     * Total tests performed: N*(N-1)/2.
+     * No pruning, no spatial info used — just nested loops.
+     */
+    @Override
+    public List<int[]> queryPairs() {
+        List<int[]> result = new ArrayList<>();
+        int n = objects.size();
+
+        // nested loop, j starts at i+1 so:
+        //   - we never test (a, a)
+        //   - we never test both (a, b) and (b, a)
+        //   - pairs are automatically canonical (i < j)
+        for (int i = 0; i < n; i++) {
+            AABB boxI = objects.get(i).getBoundingBox();
+            for (int j = i + 1; j < n; j++) {
+                AABB boxJ = objects.get(j).getBoundingBox();
+                if (boxI.overlaps(boxJ)) {
+                    result.add(new int[]{i, j});
+                }
+            }
+        }
+        return result;
+    }
 }

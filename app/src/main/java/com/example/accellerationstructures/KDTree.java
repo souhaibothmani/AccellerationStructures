@@ -1,9 +1,11 @@
 package com.example.accellerationstructures;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * KDTree - Efficient Spatial Partitioning.
@@ -309,6 +311,61 @@ public class KDTree implements AccelerationStructures {
     // ─────────────────────────────────────────
     // HELPERS
     // ─────────────────────────────────────────
+
+    // ─────────────────────────────────────────
+    // PAIR QUERY (broad-phase)
+    // ─────────────────────────────────────────
+    /**
+     * KDTree pair query.
+     *
+     * Like Octree, objects that straddle a split plane are inserted into BOTH
+     * children. A pair (A, B) can therefore be emitted from multiple leaves
+     * if both A and B straddle together, so we dedup via a Set<Long>.
+     *
+     * The KDTree's spatial discipline keeps leaves small and spatially tight,
+     * so pair tests concentrate only on objects that are actually close.
+     */
+    @Override
+    public List<int[]> queryPairs() {
+        List<int[]> result = new ArrayList<>();
+        Set<Long> seen = new HashSet<>();
+        collectPairs(root, result, seen);
+        return result;
+    }
+
+    /**
+     * Walk the tree; at each LEAF, do the local all-pairs loop.
+     * Internal nodes just recurse into left and right.
+     */
+    private void collectPairs(KDTreeNode node, List<int[]> out, Set<Long> seen) {
+        if (node == null) return;
+
+        if (node.isLeaf) {
+            // local O(k^2) within this leaf
+            List<Hittable> bucket = node.objects;
+            int k = bucket.size();
+            for (int a = 0; a < k; a++) {
+                Hittable oa = bucket.get(a);
+                int ia = indexMap.get(oa);
+                AABB boxA = oa.getBoundingBox();
+                for (int b = a + 1; b < k; b++) {
+                    Hittable ob = bucket.get(b);
+                    int ib = indexMap.get(ob);
+                    int lo = Math.min(ia, ib);
+                    int hi = Math.max(ia, ib);
+                    long key = ((long) lo << 32) | (hi & 0xffffffffL);
+                    if (!seen.add(key)) continue; // dedup across straddling leaves
+                    if (boxA.overlaps(ob.getBoundingBox())) {
+                        out.add(new int[]{lo, hi});
+                    }
+                }
+            }
+        } else {
+            // internal node: recurse into both children
+            collectPairs(node.left,  out, seen);
+            collectPairs(node.right, out, seen);
+        }
+    }
 
     // [EQUAL TO OCTREE] same scene bounds computation
     private AABB computeSceneBounds(List<Hittable> objects) {

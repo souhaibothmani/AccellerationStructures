@@ -1,9 +1,11 @@
 package com.example.accellerationstructures;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * UniformGrid - Divides the scene into equal-sized 3D cells (voxels).
@@ -283,5 +285,65 @@ public class UniformGrid implements AccelerationStructures{
             cellBoundary = sceneMin + cellIdx * cellSize;
         }
         return (cellBoundary - entryPos) / dir;
+    }
+
+    // ─────────────────────────────────────────
+    // PAIR QUERY (broad-phase)
+    // ─────────────────────────────────────────
+    /**
+     * Grid pair query: only pairs up objects that share at least one cell.
+     *
+     * Why this is fast:
+     *   Objects in DIFFERENT cells are never enumerated, let alone tested.
+     *   Total pair tests ~= sum over cells of (k_cell choose 2),
+     *   which is much smaller than (N choose 2) when objects are spread out.
+     *
+     * Why we need a dedup set:
+     *   Big objects that straddle multiple cells appear in each of those cells'
+     *   object lists. Without dedup, pair (A, B) could be emitted twice (once
+     *   from a cell they both live in, and again from another shared cell).
+     *   We pack (i, j) with i<j into a single long key for the HashSet.
+     */
+    @Override
+    public List<int[]> queryPairs() {
+        List<int[]> result = new ArrayList<>();
+        // dedup set: packed key = ((long)min << 32) | max
+        Set<Long> seen = new HashSet<>();
+
+        // walk every cell in the grid
+        for (int x = 0; x < resolution; x++) {
+            for (int y = 0; y < resolution; y++) {
+                for (int z = 0; z < resolution; z++) {
+                    List<Hittable> bucket = cells[x][y][z];
+                    int k = bucket.size();
+                    if (k < 2) continue; // need at least 2 objects to form a pair
+
+                    // LOCAL O(k^2): all pairs within this cell
+                    for (int a = 0; a < k; a++) {
+                        Hittable oa = bucket.get(a);
+                        int ia = indexMap.get(oa);
+                        AABB boxA = oa.getBoundingBox();
+                        for (int b = a + 1; b < k; b++) {
+                            Hittable ob = bucket.get(b);
+                            int ib = indexMap.get(ob);
+
+                            // canonicalize to (min, max) so the key is stable
+                            int lo = Math.min(ia, ib);
+                            int hi = Math.max(ia, ib);
+                            long key = ((long) lo << 32) | (hi & 0xffffffffL);
+
+                            // skip if we already emitted this pair from another cell
+                            if (!seen.add(key)) continue;
+
+                            // final AABB overlap test (counter auto-increments)
+                            if (boxA.overlaps(ob.getBoundingBox())) {
+                                result.add(new int[]{lo, hi});
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return result;
     }
 }

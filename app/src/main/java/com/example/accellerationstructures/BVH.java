@@ -224,6 +224,124 @@ public class BVH implements AccelerationStructures {
     // HELPERS
     // ─────────────────────────────────────────
 
+    // ─────────────────────────────────────────
+    // PAIR QUERY (broad-phase)
+    // ─────────────────────────────────────────
+    /**
+     * BVH pair query — the cleanest of the four.
+     *
+     * Every object lives in EXACTLY ONE leaf (no straddling, no duplicates),
+     * so we never need a dedup set. The algorithm uses two mutually recursive
+     * functions:
+     *
+     *   selfPairs(node)     → all overlapping pairs WITHIN node's subtree
+     *   crossPairs(A, B)    → all overlapping pairs where one object is in
+     *                          subtree A and the other is in subtree B
+     *
+     * The magic is in crossPairs: if A.bounds and B.bounds don't overlap,
+     * return immediately — the entire rectangle of A.objects x B.objects
+     * pairs is pruned with a single AABB test.
+     */
+    @Override
+    public List<int[]> queryPairs() {
+        List<int[]> result = new ArrayList<>();
+        if (root == null) return result;
+        selfPairs(root, result);
+        return result;
+    }
+
+    /**
+     * Find all overlapping pairs inside a single subtree.
+     * Splits into three cases:
+     *   1. pairs entirely inside left subtree    → selfPairs(left)
+     *   2. pairs entirely inside right subtree   → selfPairs(right)
+     *   3. pairs straddling the split            → crossPairs(left, right)
+     * Every pair in the subtree falls into exactly one of those three buckets.
+     */
+    private void selfPairs(BVHNode node, List<int[]> out) {
+        if (node == null) return;
+
+        if (node.isLeaf) {
+            // local O(k^2) within this leaf's objects
+            List<Hittable> bucket = node.objects;
+            int k = bucket.size();
+            for (int a = 0; a < k; a++) {
+                Hittable oa = bucket.get(a);
+                int ia = indexMap.get(oa);
+                AABB boxA = oa.getBoundingBox();
+                for (int b = a + 1; b < k; b++) {
+                    Hittable ob = bucket.get(b);
+                    int ib = indexMap.get(ob);
+                    // inside a single leaf, (a, b) with a<b already gives ia<ib
+                    // guarantee? NO — bucket order is not index order. Canonicalize.
+                    int lo = Math.min(ia, ib);
+                    int hi = Math.max(ia, ib);
+                    if (boxA.overlaps(ob.getBoundingBox())) {
+                        out.add(new int[]{lo, hi});
+                    }
+                }
+            }
+            return;
+        }
+
+        // internal: three recursive calls covering all pair locations
+        selfPairs(node.left,  out);
+        selfPairs(node.right, out);
+        crossPairs(node.left, node.right, out);
+    }
+
+    /**
+     * Find all overlapping pairs where one object is in subtree A
+     * and the other is in subtree B.
+     *
+     * STEP 1 — THE PRUNE:
+     *   If A.bounds doesn't overlap B.bounds, NO object in A can overlap
+     *   ANY object in B. Return immediately. This is where BVH gets its
+     *   speed: a single AABB test skips a whole rectangle of pairs.
+     *
+     * STEP 2 — LEAF vs LEAF:
+     *   Full nested loop, test every pair between the two leaves' objects.
+     *
+     * STEP 3 — DESCEND:
+     *   Recurse by splitting whichever side is internal. This gives more
+     *   prune opportunities at the next level down.
+     */
+    private void crossPairs(BVHNode A, BVHNode B, List<int[]> out) {
+        if (A == null || B == null) return;
+
+        // STEP 1: the prune — one AABB test kills the whole cross-product
+        if (!A.bounds.overlaps(B.bounds)) return;
+
+        if (A.isLeaf && B.isLeaf) {
+            // STEP 2: leaf vs leaf — full nested loop across the two leaves
+            for (Hittable oa : A.objects) {
+                int ia = indexMap.get(oa);
+                AABB boxA = oa.getBoundingBox();
+                for (Hittable ob : B.objects) {
+                    int ib = indexMap.get(ob);
+                    // indices from different leaves have no order guarantee
+                    int lo = Math.min(ia, ib);
+                    int hi = Math.max(ia, ib);
+                    if (boxA.overlaps(ob.getBoundingBox())) {
+                        out.add(new int[]{lo, hi});
+                    }
+                }
+            }
+            return;
+        }
+
+        // STEP 3: descend into whichever side is internal
+        //   - if A is a leaf, split B
+        //   - else split A (symmetric choice; both are correct)
+        if (A.isLeaf) {
+            crossPairs(A, B.left,  out);
+            crossPairs(A, B.right, out);
+        } else {
+            crossPairs(A.left,  B, out);
+            crossPairs(A.right, B, out);
+        }
+    }
+
     /**
      * [DIFFERENT FROM KDTREE]
      * Computes AABB that shrink-wraps around a list of objects.

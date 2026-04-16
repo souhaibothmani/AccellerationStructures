@@ -139,11 +139,35 @@ public class AABB implements Hittable{
         return new Vec3(0, 0, 1); // +Z face as default
     }
 
+    // ─────────────────────────────────────────
+    // BROAD-PHASE COUNTER
+    // ─────────────────────────────────────────
+    // Global counter of how many AABB-AABB overlap tests have been performed.
+    // Reset it to 0 before running a benchmark, then read it after to see
+    // exactly how many pair-tests the acceleration structure actually did.
+    // This is the deterministic "#tests" metric (unlike wall-clock time).
+    public static long overlapTestCount = 0;
+
+    /** Reset the counter back to 0 before a benchmark run. */
+    public static void resetOverlapCounter() {
+        overlapTestCount = 0;
+    }
+
     /**
      * Returns true if this AABB overlaps another AABB.
-     * Used by UniformGrid to figure out which cells an object belongs to.
+     *
+     * Overlap condition: the two boxes must overlap on ALL 3 axes.
+     * On a single axis, intervals [aMin, aMax] and [bMin, bMax] overlap iff
+     *     aMin <= bMax  AND  bMin <= aMax
+     * Early-out on the first failed axis for speed.
+     *
+     * Used by:
+     *   - UniformGrid: to figure out which cells an object belongs to
+     *   - queryPairs() in every structure: the broad-phase primitive
      */
     public boolean overlaps(AABB other) {
+        // instrument every call so the benchmark can count pair-tests
+        overlapTestCount++;
         return min.x <= other.max.x && max.x >= other.min.x &&
                 min.y <= other.max.y && max.y >= other.min.y &&
                 min.z <= other.max.z && max.z >= other.min.z;

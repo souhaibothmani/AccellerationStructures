@@ -1,9 +1,11 @@
 package com.example.accellerationstructures;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Octree - Hierarchical spatial subdivision.
@@ -268,6 +270,63 @@ public class Octree implements AccelerationStructures {
     // ─────────────────────────────────────────
     // HELPER METHODS
     // ─────────────────────────────────────────
+
+    // ─────────────────────────────────────────
+    // PAIR QUERY (broad-phase)
+    // ─────────────────────────────────────────
+    /**
+     * Octree pair query.
+     *
+     * Because the Octree inserts a straddling object into EVERY overlapping
+     * child (and there are no "stuck at internal node" slots in this impl —
+     * objects only live in leaves), the same pair can easily be emitted from
+     * multiple leaves. So we dedup via a Set<Long> with packed (i<<32)|j keys.
+     *
+     * The savings come from the fact that objects in leaves whose bounds are
+     * far apart never end up in the same leaf, so their pair is NEVER tested.
+     */
+    @Override
+    public List<int[]> queryPairs() {
+        List<int[]> result = new ArrayList<>();
+        Set<Long> seen = new HashSet<>();
+        collectPairs(root, result, seen);
+        return result;
+    }
+
+    /**
+     * Recursive traversal: at each LEAF, pair up all its objects locally.
+     * Internal nodes just recurse — they hold no objects in this implementation.
+     */
+    private void collectPairs(OctreeNode node, List<int[]> out, Set<Long> seen) {
+        if (node == null) return;
+
+        if (node.isLeaf) {
+            // local O(k^2) within this leaf's objects
+            List<Hittable> bucket = node.objects;
+            int k = bucket.size();
+            for (int a = 0; a < k; a++) {
+                Hittable oa = bucket.get(a);
+                int ia = indexMap.get(oa);
+                AABB boxA = oa.getBoundingBox();
+                for (int b = a + 1; b < k; b++) {
+                    Hittable ob = bucket.get(b);
+                    int ib = indexMap.get(ob);
+                    int lo = Math.min(ia, ib);
+                    int hi = Math.max(ia, ib);
+                    long key = ((long) lo << 32) | (hi & 0xffffffffL);
+                    if (!seen.add(key)) continue; // already emitted from another leaf
+                    if (boxA.overlaps(ob.getBoundingBox())) {
+                        out.add(new int[]{lo, hi});
+                    }
+                }
+            }
+        } else {
+            // internal node: recurse into every child
+            for (OctreeNode child : node.children) {
+                collectPairs(child, out, seen);
+            }
+        }
+    }
 
     private AABB computeSceneBounds(List<Hittable> objects){
         Vec3 min = new Vec3(Float.MAX_VALUE , Float.MAX_VALUE, Float.MAX_VALUE);

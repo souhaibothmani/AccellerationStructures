@@ -48,4 +48,24 @@ public interface AccelerationStructures {
      * @return the closest Intersection if anything was hit, null if ray hits nothing
      */
     Intersection findFirstIntersection(Ray ray);
+
+    /**
+     * BROAD-PHASE PAIR QUERY.
+     * Returns every pair of object indices (i, j) whose AABBs overlap
+     * according to this structure's spatial logic.
+     *
+     * Each pair is returned as int[]{i, j} with i < j (canonical form).
+     * No duplicates — a given pair appears at most once in the list.
+     *
+     * The whole point of this method is to show how each structure AVOIDS
+     * the O(N^2) pair enumeration that BruteForce has to do:
+     *   - UniformGrid: pairs objects within the same cell only
+     *   - Octree / KDTree / BVH: prunes whole subtrees when AABBs don't overlap
+     *
+     * Results MUST be identical across all structures (same pair set),
+     * otherwise the implementation has a bug.
+     *
+     * @return list of overlapping pairs as int[]{i, j} with i < j
+     */
+    java.util.List<int[]> queryPairs();
 }
